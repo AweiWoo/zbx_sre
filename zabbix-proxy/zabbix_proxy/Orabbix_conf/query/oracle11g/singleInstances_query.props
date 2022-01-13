@@ -1,0 +1,234 @@
+DefaultQueryPeriod=2
+
+QueryList=dbsize,dbfilesize,archive,audit,dbblockgets,dbconsistentgets,dbhitratio,dbphysicalread,hitratio_body,hitratio_sqlarea,hitratio_table_proc, \
+lio_current_read,maxprocs,maxsession,miss_latch,pga_aggregate_target, pga,phio_datafile_reads,phio_datafile_writes,phio_redo_writes,pinhitratio_body,pinhitratio_sqlarea,pinhitratio_table-proc,pinhitratio_trigger, \
+pool_dict_cache,pool_free_mem,pool_lib_cache,pool_misc,pool_sql_area,procnum,session_active,session_inactive,session,session_system,sga_buffer_cache, \
+sga_fixed,sga_java_pool,sga_large_pool,sga_log_buffer,sga_shared_pool,tbl_space,userconn,waits_controfileio,waits_directpath_read, \
+waits_file_io,waits_latch,waits_logwrite,waits_multiblock_read,waits_singleblock_read,hitratio_trigger,lio_block_changes,lio_consistent_read,waits_other,waits_sqlnet,users_locked,uptime,temp_tablespace,flash_recovery_area_usage,invalid_object,locks,sga_shared_hit,sga_buffer_cache_hit,sga_log_nowait,rman_check_status,sqlrush_procedure,sqlrush_trigger,log_seq,strmaxconnect,scn
+
+#------------------------------数据库信息-----------------------------------------------------------------
+#数据库数据文件总大小(表空间总和大小)
+dbfilesize.Query=select to_char(sum(bytes/1024/1024/1024), 'FM99999999999999990') retvalue from dba_data_files
+#数据库大小（实际数据大小）
+dbsize.Query=SELECT to_char(sum(  NVL(a.bytes/1024/1024/1024 - NVL(f.bytes/1024/1024/1024, 0), 0)), 'FM99999999999999990') retvalue \
+    FROM sys.dba_tablespaces d, \
+    (select tablespace_name, sum(bytes) bytes from dba_data_files group by tablespace_name) a, \
+    (select tablespace_name, sum(bytes) bytes from dba_free_space group by tablespace_name) f \
+    WHERE d.tablespace_name = a.tablespace_name(+) AND d.tablespace_name = f.tablespace_name(+) \
+    AND NOT (d.extent_management like 'LOCAL' AND d.contents like 'TEMPORARY')
+#数据库锁数量
+locks.Query=select count(1) lock_num \
+            from v$locked_object t1, v$session t2, dba_objects t3, gv$lock t4 \
+            where t1.session_id = t2.sid \
+            and t1.object_id = t3.object_id \
+            and t2.sid = t4.SID \
+            and t2.LAST_CALL_ET > 120 \
+            and t2.status = 'ACTIVE' \
+            order by t2.logon_time
+#数据库运行时间
+uptime.Query=select to_char((sysdate-startup_time)*86400, 'FM99999999999999990') retvalue from v$instance
+#数据库登陆审计
+audit.Query=select username "username", \
+  to_char(timestamp,'DD-MON-YYYY HH24:MI:SS') "time_stamp", \
+  action_name "statement", \
+  os_username "os_username", \
+  userhost "userhost", \
+  returncode||decode(returncode,'1004','-Wrong Connection','1005','-NULL Password','1017','-Wrong Password','1045','-Insufficient Priviledge','0','-Login Accepted','--') "returncode" \
+  from sys.dba_audit_session \
+  where (sysdate - timestamp)*24 < 1 and returncode <> 0 \
+  order by timestamp
+audit.NoDataFound=none
+#监控失效项个数
+invalid_object.Query=SELECT COUNT(1) FROM dba_objects WHERE status = 'INVALID' and OWNER NOT IN ('SYS','PUBLIC','SYSTEM')
+#用户连接数
+userconn.Query=select count(username) from v$session where username is not null
+#用户是否被锁
+users_locked.Query=SELECT username||' '|| lock_date ||' '|| account_status FROM dba_users where ACCOUNT_STATUS like 'EXPIRED(GRACE)' or ACCOUNT_STATUS like 'LOCKED(TIMED)'
+users_locked.NoDataFound=none
+#连接数最大的客户端
+strmaxconnect.Query=select MACHINE||':'||nums as info from ( select b.MACHINE as machine,count(1) as nums  from v$process a, v$session b where a.ADDR = b.PADDR and b.USERNAME is not null group by b.MACHINE, b.PROGRAM order by count(*) desc ) where rownum =1
+#数据库SCN
+scn.Query=select current_scn from v$database
+#---------------------------------------------------------------------------------------------------------
+
+#-------------------------------------归档和备份-----------------------------------------------------------
+#归档频率
+archive.Query=select round(A.LOGS*B.AVG/1024/1024/10) from ( SELECT COUNT (*)  LOGS FROM V$LOG_HISTORY WHERE FIRST_TIME >= (sysdate -10/60/24)) A, ( SELECT Avg(BYTES) AVG,  Count(1), Max(BYTES) Max_Bytes, Min(BYTES) Min_Bytes  FROM  v$log) B
+archive.RaceConditionQuery=select value from v$parameter where name='log_archive_start'
+archive.RaceConditionValue=FALSE
+#闪回区使用率
+flash_recovery_area_usage.Query=select sum(PERCENT_SPACE_USED) from v$flash_recovery_area_usage
+#rman备份情况
+rman_check_status.Query=select STATUS FROM  V$RMAN_STATUS WHERE  start_time > SYSDATE - 1 and OPERATION = 'RMAN'
+#最大归档日志序列号
+log_seq.Query=select max(sequence#) from v$archived_log
+#-------------------------------------------------------------------------------------------------------
+
+#------------------------------------processes和session--------------------------------------------------
+#设置的最大进程数
+maxprocs.Query=select value "maxprocs" from v$parameter where name ='processes'
+#当前使用的进程数
+procnum.Query=select count(*) "procnum" from v$process
+#设置的最大会话数
+maxsession.Query=select value "maxsess" from v$parameter where name ='sessions'
+#当前活动的会话数
+session_active.Query=select count(*) from v$session where TYPE!='BACKGROUND' and status='ACTIVE'
+#当前非活动状态的会话数
+session_inactive.Query=select SUM(Decode(Type, 'BACKGROUND', 0, Decode(Status, 'ACTIVE', 0, 1))) FROM V$SESSION
+#当前所有的会话数
+session.Query=select count(*) from v$session
+#oracle自己占用的会话数
+session_system.Query=select SUM(Decode(Type, 'BACKGROUND', 1, 0)) system_sessions FROM V$SESSION
+#--------------------------------------------------------------------------------------------------------
+
+
+#---------------------------------------------------SGA和PGA---------------------------------------------
+#SGA使用情况
+#buffer cache大小
+sga_buffer_cache.Query=SELECT to_char(ROUND(SUM(decode(pool,NULL,decode(name,'db_block_buffers',(bytes)/(1024*1024),'buffer_cache',(bytes)/(1024*1024),0),0)),2)) sga_bufcache FROM V$SGASTAT
+#buffer cache命中率
+sga_buffer_cache_hit.Query=SELECT round((1 - (PHYSICAL_READS / (DB_BLOCK_GETS + CONSISTENT_GETS)))*100,2) "Hit Ratio" FROM V$BUFFER_POOL_STATISTICS WHERE NAME='DEFAULT'
+#固定SGA区域大小
+sga_fixed.Query=SELECT TO_CHAR(ROUND(SUM(decode(pool,NULL,decode(name,'fixed_sga',(bytes)/(1024*1024),0),0)),2)) sga_fixed FROM V$SGASTAT
+#java池大小
+sga_java_pool.Query=SELECT to_char(ROUND(SUM(decode(pool,'java pool',(bytes)/(1024*1024),0)),2)) sga_jpool FROM V$SGASTAT
+#大池大小
+sga_large_pool.Query=SELECT to_char(ROUND(SUM(decode(pool,'large pool',(bytes)/(1024*1024),0)),2)) sga_lpool FROM V$SGASTAT
+#日志缓冲区大小
+sga_log_buffer.Query=SELECT TO_CHAR(ROUND(SUM(decode(pool,NULL,decode(name,'log_buffer',(bytes)/(1024*1024),0),0)),2)) sga_lbuffer FROM V$SGASTAT
+#redo log wait
+sga_log_nowait.Query=select round((1-waits.value/redos.value)*100,2)"redo nowait" from v$sysstat waits,v$sysstat redos where waits.NAME='redo log space requests' and redos.NAME='redo entries'
+#共享池大小
+sga_shared_pool.Query=SELECT TO_CHAR(ROUND(SUM(decode(pool,'shared pool',decode(name,'library cache',0,'dictionary cache',0,'free memory',0,'sql area',0,(bytes)/(1024*1024)),0)),2)) pool_misc FROM V$SGASTAT
+#共享池命中率
+sga_shared_hit.Query=select sum(pinhits-reloads)/sum(pins)*100 "hit radio" from v$librarycache
+#PGA使用情况
+pga_aggregate_target.Query=select to_char(decode( unit,'bytes', value/1024/1024, value),'999999999.9') value from V$PGASTAT where name in 'aggregate PGA target parameter'
+pga.Query=select to_char(decode( unit,'bytes', value/1024/1024, value),'999999999.9') value from V$PGASTAT where name in 'total PGA inuse'
+#共享池使用情况
+pool_dict_cache.Query=SELECT TO_CHAR(ROUND(SUM(decode(pool,'shared pool',decode(name,'dictionary cache',(bytes)/(1024*1024),0),0)),2)) pool_dict_cache FROM V$SGASTAT
+pool_free_mem.Query=SELECT TO_CHAR(ROUND(SUM(decode(pool,'shared pool',decode(name,'free memory',(bytes)/(1024*1024),0),0)),2)) pool_free_mem FROM V$SGASTAT
+pool_lib_cache.Query=SELECT TO_CHAR(ROUND(SUM(decode(pool,'shared pool',decode(name,'library cache',(bytes)/(1024*1024),0),0)),2)) pool_lib_cache FROM V$SGASTAT
+pool_misc.Query=SELECT TO_CHAR(ROUND(SUM(decode(pool,'shared pool',decode(name,'library cache',0,'dictionary cache',0,'free memory',0,'sql area', 0,(bytes)/(1024*1024)),0)),2)) pool_misc FROM V$SGASTAT
+pool_sql_area.Query=SELECT TO_CHAR(ROUND(SUM(decode(pool,'shared pool',decode(name,'sql area',(bytes)/(1024*1024),0),0)),2)) pool_sql_area FROM V$SGASTAT
+#Library Cache 命中率
+pinhitratio_body.Query=select pins/(pins+reloads)*100 "pin_hit ratio" FROM v$librarycache where namespace ='BODY'
+pinhitratio_sqlarea.Query=select pins/(pins+reloads)*100 "pin_hit ratio" FROM v$librarycache where namespace ='SQL AREA'
+pinhitratio_table-proc.Query=select pins/(pins+reloads)*100 "pin_hit ratio" FROM v$librarycache where namespace ='TABLE/PROCEDURE'
+pinhitratio_trigger.Query=select pins/(pins+reloads)*100 "pin_hit ratio" FROM v$librarycache where namespace ='TRIGGER'
+hitratio_body.Query=select gethitratio*100 "get_pct" FROM v$librarycache where namespace ='BODY'
+hitratio_sqlarea.Query=select gethitratio*100 "get_pct" FROM v$librarycache where namespace ='SQL AREA'
+hitratio_trigger.Query=select gethitratio*100 "get_pct" FROM v$librarycache where namespace ='TRIGGER'
+hitratio_table_proc.Query=select gethitratio*100 "get_pct" FROM v$librarycache where namespace = 'TABLE/PROCEDURE'
+#----------------------------------------------------------------------------------------------------------
+
+#--------------------------------------------------表空间---------------------------------------------------
+#临时表空间使用率
+temp_tablespace.Query=select to_char(used_percent,'99.99') from dba_tablespace_usage_metrics where tablespace_name='TEMP'
+#数据表空间使用率,使用率超过94%并且剩余空间少于10G
+tbl_space.Query=SELECT ktablespace||' Used(%):'||kperc||'%  Used(GB):'||ktbs_em_uso||'GB Free:'||kfree_space||'MB' as info FROM ( \
+select '- Tablespace ->',t.tablespace_name ktablespace, \
+       '- Type->',substr(t.contents, 1, 1) tipo, \
+       '- Used(GB)->',trunc((d.tbs_size-nvl(s.free_space, 0))/1024/1024/1024) ktbs_em_uso, \
+       '- ActualSize(MB)->',trunc(d.tbs_size/1024/1024) ktbs_size, \
+       '- MaxSize(MB)->',trunc(d.tbs_maxsize/1024/1024) ktbs_maxsize, \
+       '- FreeSpace(GB)->',trunc(nvl(s.free_space, 0)/1024/1024) kfree_space, \
+       '- Space->',trunc((d.tbs_maxsize - d.tbs_size + nvl(s.free_space, 0))/1024/1024) kspace, \
+       '- Perc->',decode(d.tbs_maxsize, 0, 0, trunc((d.tbs_size-nvl(s.free_space, 0))*100/d.tbs_maxsize)) kperc \
+from \
+  ( select SUM(bytes) tbs_size, \
+           SUM(decode(sign(maxbytes - bytes), -1, bytes, maxbytes)) tbs_maxsize, tablespace_name tablespace \
+    from ( select nvl(bytes, 0) bytes, nvl(maxbytes, 0) maxbytes, tablespace_name \
+    from dba_data_files \
+    union all \
+    select nvl(bytes, 0) bytes, nvl(maxbytes, 0) maxbytes, tablespace_name \
+    from dba_temp_files \
+    ) \
+    group by tablespace_name \
+    ) d, \
+    ( select SUM(bytes) free_space, \
+    tablespace_name tablespace \
+    from dba_free_space \
+    group by tablespace_name \
+    ) s, \
+    dba_tablespaces t \
+    where t.tablespace_name = d.tablespace(+) and \
+    t.tablespace_name = s.tablespace(+) \
+    order by 8) \
+where kperc > 93 \
+and kfree_space < 10240 \
+and tipo <>'T' \
+and tipo <>'U'
+tbl_space.NoDataFound=none
+#-------------------------------------------------------------------------------------------------------
+
+#--------------------------------------------------等待事件----------------------------------------------
+waits_controfileio.Query=SELECT to_char(sum(decode(event,'control file sequential read', total_waits, 'control file single write', total_waits, 'control file parallel write',total_waits,0))) ControlFileIO FROM V$system_event WHERE 1=1 AND event not in ( 'SQL*Net message from client', 'SQL*Net more data from client','pmon timer', 'rdbms ipc message', 'rdbms ipc reply', 'smon timer')
+
+waits_directpath_read.Query=SELECT to_char(sum(decode(event,'direct path read',total_waits,0))) DirectPathRead FROM V$system_event WHERE 1=1 AND event not in ('SQL*Net message from ', 'SQL*Net more data from client','pmon timer', 'rdbms ipc message', 'rdbms ipc reply', 'smon timer') 
+
+waits_file_io.Query=SELECT to_char(sum(decode(event,'file identify',total_waits, 'file open',total_waits,0))) FileIO FROM V$system_event WHERE 1=1 AND event not in (   'SQL*Net message from client',   'SQL*Net more data from client', 'pmon timer', 'rdbms ipc message', 'rdbms ipc reply', 'smon timer') 
+
+waits_latch.Query=SELECT to_char(sum(decode(event,'control file sequential read', total_waits, \
+'control file single write', total_waits, 'control file parallel write',total_waits,0))) ControlFileIO \
+FROM V$system_event WHERE 1=1 AND event not in ( \
+  'SQL*Net message from client', \
+  'SQL*Net more data from client', \
+  'pmon timer', 'rdbms ipc message', \
+  'rdbms ipc reply', 'smon timer') 
+
+waits_logwrite.Query=SELECT to_char(sum(decode(event,'log file single write',total_waits, 'log file parallel write',total_waits,0))) LogWrite \
+FROM V$system_event WHERE 1=1 AND event not in ( \
+  'SQL*Net message from client', \
+  'SQL*Net more data from client', \
+  'pmon timer', 'rdbms ipc message', \
+  'rdbms ipc reply', 'smon timer') 
+
+waits_multiblock_read.Query=SELECT to_char(sum(decode(event,'db file scattered read',total_waits,0))) MultiBlockRead \
+FROM V$system_event WHERE 1=1 AND event not in ( \
+  'SQL*Net message from client', \
+  'SQL*Net more data from client', \
+  'pmon timer', 'rdbms ipc message', \
+  'rdbms ipc reply', 'smon timer') 
+
+waits_other.Query=SELECT to_char(sum(decode(event,'control file sequential read',0,'control file single write',0,'control file parallel write',0,'db file sequential read',0,'db file scattered read',0,'direct path read',0,'file identify',0,'file open',0,'SQL*Net message to client',0,'SQL*Net message to dblink',0, 'SQL*Net more data to client',0,'SQL*Net more data to dblink',0, 'SQL*Net break/reset to client',0,'SQL*Net break/reset to dblink',0, 'log file single write',0,'log file parallel write',0,total_waits))) Other FROM V$system_event WHERE 1=1 AND event not in (  'SQL*Net message from client', 'SQL*Net more data from client', 'pmon timer', 'rdbms ipc message',  'rdbms ipc reply', 'smon timer')
+
+waits_singleblock_read.Query=SELECT to_char(sum(decode(event,'db file sequential read',total_waits,0))) SingleBlockRead \
+FROM V$system_event WHERE 1=1 AND event not in ( \
+  'SQL*Net message from client', \
+  'SQL*Net more data from client', \
+  'pmon timer', 'rdbms ipc message', \
+  'rdbms ipc reply', 'smon timer') 
+
+waits_sqlnet.Query=SELECT to_char(sum(decode(event,'SQL*Net message to client',total_waits,'SQL*Net message to dblink',total_waits,'SQL*Net more data to client',total_waits,'SQL*Net more data to dblink',total_waits,'SQL*Net break/reset to client',total_waits,'SQL*Net break/reset to dblink',total_waits,0))) SQLNET FROM V$system_event WHERE 1=1 \
+AND event not in ( 'SQL*Net message from client','SQL*Net more data from client','pmon timer','rdbms ipc message','rdbms ipc reply', 'smon timer')
+#--------------------------------------------------------------------------------------------------------
+
+#--------------------------------------------------读写性能-----------------------------------------------
+dbblockgets.Query=select to_char(sum(decode(name,'db block gets', value,0))) "block_gets" FROM v$sysstat
+dbconsistentgets.Query=select to_char(sum(decode(name,'consistent gets', value,0))) "consistent_gets" FROM v$sysstat
+dbhitratio.Query=select ( \
+  sum(decode(name,'consistent gets', value,0)) + sum(decode(name,'db block gets', value,0)) - sum(decode(name,'physical reads', value,0))) / (sum(decode(name,'consistent gets', value,0)) + sum(decode(name,'db block gets', value,0)) ) * 100 "hit_ratio" \
+  FROM v$sysstat
+dbphysicalread.Query=select sum(decode(name,'physical reads', value,0)) "phys_reads" FROM v$sysstat
+sqlnotindexed.Query=SELECT SUM(DECODE(NAME, 'table scans (long tables)', VALUE, 0))/ (SUM(DECODE(NAME, 'table scans (long tables)', VALUE, 0))+SUM(DECODE(NAME, 'table scans (short tables)', VALUE, 0)))*100 SQL_NOT_INDEXED FROM V$SYSSTAT WHERE 1=1 AND ( NAME IN ('table scans (long tables)','table scans (short tables)') )
+lio_block_changes.Query=SELECT to_char(SUM(DECODE(NAME,'db block changes',VALUE,0))) \
+FROM V$SYSSTAT \
+WHERE NAME ='db block changes'
+lio_consistent_read.Query=SELECT to_char(sum(decode(name,'consistent gets',value,0))) FROM V$SYSSTAT WHERE NAME ='consistent gets'
+lio_current_read.Query=SELECT to_char(sum(decode(name,'db block gets',value,0))) FROM V$SYSSTAT WHERE NAME ='db block gets'
+miss_latch.Query=SELECT SUM(misses) FROM V$LATCH
+#物理读大小
+phio_datafile_reads.Query=select to_char(sum(decode(name,'physical reads direct',value,0))) FROM V$SYSSTAT where name ='physical reads direct'
+#物理写大小
+phio_datafile_writes.Query=select to_char(sum(decode(name,'physical writes direct',value,0))) FROM V$SYSSTAT where name ='physical writes direct'
+phio_redo_writes.Query=select to_char(sum(decode(name,'redo writes',value,0))) FROM V$SYSSTAT where name ='redo writes'
+#----------------------------------------------------------------------------------------------------------
+
+#---------------------------------------------其他---------------------------------------------------------
+#监控勒索病毒
+sqlrush_procedure.Query=SELECT OWNER FROM ALL_PROCEDURES WHERE PROCEDURE_NAME IN ('DBMS_SUPPORT_INTERNAL','DBMS_STANDARD_FUN9','DBMS_SYSTEM_INTERNA','DBMS_CORE_INTERNAL')
+sqlrush_procedure.NoDataFound=none
+sqlrush_trigger.Query=SELECT OWNER FROM ALL_TRIGGERS WHERE TRIGGER_NAME IN ('DBMS_SUPPORT_INTERNAL','DBMS_ SYSTEM _INTERNAL','DBMS_ CORE _INTERNAL')
+sqlrush_trigger.NoDataFound=none
+#----------------------------------------------------------------------------------------------------------

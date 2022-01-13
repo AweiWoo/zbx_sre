@@ -1,0 +1,29 @@
+- name: Create Zabbix User In  Client
+  user: name={{ zabbix_user }} state=present createhome=no shell=/sbin/nologin
+- name: Create Zabbix home directory
+  file: path={{ zabbix_dir }} state=directory
+- name: Copy Zabbix Client Software To Client
+  unarchive: src=zabbix_agents_{{ zabbix_version }}.tar.gz dest={{ zabbix_dir }}
+- name: Copy Zabbix Start Script To  Client
+  template: src=zabbix_agentd dest=/etc/init.d/zabbix_agentd owner=root group=root mode=0755
+- name: Copy jboss Zabbix Config To Client
+  template: src=zabbix_agentd.conf dest={{ zabbix_dir }}/conf/zabbix_agentd.conf owner={{ zabbix_user }} group={{ zabbix_user }} mode=0644
+- name: Copy Redis Zabbix Config To Client
+  template: src=zabbix_agentd_redis.conf dest={{ zabbix_dir }}/conf/zabbix_agentd.conf owner={{ zabbix_user }} group={{ zabbix_user }} mode=0644
+  when: "ansible_default_ipv4.address in redis_server"
+- name: Copy zookeeper Zabbix Config To Client
+  template: src=zabbix_agentd_zookeeper.conf dest={{ zabbix_dir }}/conf/zabbix_agentd.conf owner={{ zabbix_user }} group={{ zabbix_user }} mode=0644
+  when: "ansible_default_ipv4.address in zookeeper_server" 
+- name: Copy stop_script to To client
+  copy: src=stopzabbix_agentd.sh dest={{ zabbix_dir }}/stopzabbix_agentd.sh mode=0755
+- name: mkdir script dir
+  file: path={{ zabbix_dir }}/script state=directory
+  ignore_errors: yes
+- name: copy other script
+  copy: src=script/ dest={{ zabbix_dir }}/script/ mode=0755
+- name: Start Zabbix Service In Client
+  shell: ./zabbix_agentd start 
+  args:
+    chdir: /etc/init.d/
+- name: add secure 
+  shell: setfacl -m u:zabbix:r-- /var/log/secure

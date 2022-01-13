@@ -1,0 +1,84 @@
+version: "3"
+services:
+    #创建zabbix proxy容器
+    omnis_proxy:
+        image: docker.cenboomh.com/sre/omnis-collect-proxy:4.0
+        container_name: omnis-collect-proxy
+        #创建容器指定的环境变量
+        environment:
+          DB_SERVER_HOST: "192.168.12.47"
+          MYSQL_DATABASE: "collect_proxy"
+          MYSQL_USER: "omnis"
+          MYSQL_PASSWORD: "Omnis123!"
+          ZBX_HOSTNAME: "nt_omnis_proxy"
+          ZBX_SERVER_HOST: "58.48.177.198"
+          ZBX_CONFIGFREQUENCY: "60"
+          ZBX_JAVAGATEWAY_ENABLE: "true"
+          ZBX_DATASENDERFREQUENCY: "5"
+          ZBX_JAVAGATEWAY: "192.168.12.47"
+          ZBX_JAVAGATEWAYPORT: "10052"
+          ZBX_STARTJAVAPOLLERS: "5"
+          ZBX_STARTPOLLERS: "100"
+          ZBX_STARTTRAPPERS: "100"
+          ZBX_STARTHTTPPOLLERS: "50"
+          ZBX_CACHESIZE: "2G"
+          ZBX_STARTDBSYNCERS: "30"
+          ZBX_HISTORYCACHESIZE: "1G"
+          ZBX_HISTORYINDEXCACHESIZE: "1G"
+          ZBX_TRENDCACHESIZE: "1G"
+          ZBX_VALUECACHESIZE: "1G"
+          ZBX_TIMEOUT: "30"
+          ZBX_UNREACHABLEPERIOD: "120"
+        volumes:
+          - /etc/localtime:/etc/localtime:ro
+        #使用host模式的网络
+        network_mode: "host"
+    
+
+    #创建zabbix proxy对应的mysql数据库容器
+    omnis_docker_mysql:
+        image: docker.cenboomh.com/sre/mysql:5.7
+        container_name: omnis_mysql
+        command: [mysqld, --character-set-server=utf8, --collation-server=utf8_bin, --max_allowed_packet=1024M, --max_connections=2000]
+        #将mysql的数据映射出来
+        volumes:
+          - /mysql:/var/lib/mysql
+          - /etc/localtime:/etc/localtime:ro
+        environment:
+          MYSQL_DATABASE: "collect_proxy"
+          MYSQL_USER: "omnis"
+          MYSQL_PASSWORD: "Omnis123!"
+          MYSQL_ROOT_PASSWORD: "Root123!"
+          TZ: "Asia/Shanghai"
+        network_mode: "host"
+
+    #创建JVM监控容器
+    omnis_java_gateway:
+        image: docker.cenboomh.com/sre/omnis-java-gateway:4.0
+        container_name: zabbix_java_gateway
+        environment:
+          ZBX_START_POLLERS: "5"
+          ZBX_TIMEOUT: "10"
+          ZBX_DEBUGLEVEL: "error"
+        volumes:
+          - /etc/localtime:/etc/localtime:ro
+        network_mode: "host"
+
+    #创建orabbix容器
+    orabbix:
+        image: docker.cenboomh.com/sre/orabbix:4.0
+        container_name: orabbix
+        environment:
+          ORB_ZABBIX_LIST: "omnis"
+          ORB_ZABBIX_ADDR: "192.168.12.47"
+          DB_URL: "jdbc:oracle:thin:@192.168.10.11:1521/hisdb"
+
+          #ORB_ZABBIX_PORT: 10051
+          #DB_LIST: "DB1"
+          #DBUSER: "zabbix"
+          #DBPASSWD: "zabbix"
+        volumes:
+          - /opt/conf:/opt/orabbix/conf
+          - /opt/logs:/opt/orabbix/logs
+          - /etc/localtime:/etc/localtime:ro
+        network_mode: "host"

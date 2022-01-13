@@ -1,0 +1,6 @@
+- name: Stop Exist Zabbix Client Service In Client
+  shell: ps -ef|grep zabbix_agentd|grep -v grep|awk '{print $2}'|xargs kill -9 >>/dev/null 2>&1
+  ignore_errors: yes
+- name: Delete Exist Zabbix Client Dir In  Client
+  file: path=/etc/zabbix state=absent
+  ignore_errors: yes

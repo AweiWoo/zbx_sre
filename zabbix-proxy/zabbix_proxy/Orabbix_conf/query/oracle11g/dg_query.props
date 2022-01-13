@@ -1,0 +1,84 @@
+DefaultQueryPeriod=2
+
+QueryList=locks,uptime,invalid_object,userconn,scn,maxprocs,procnum,maxsession,session_active,session_inactive,session,session_system,sga_buffer_cache,sga_buffer_cache_hit,sga_fixed,sga_java_pool,sga_large_pool,sga_log_buffer,sga_shared_pool,sga_shared_hit,pga_aggregate_target,pga,temp_tablespace,db_mode,dg_gap,dg_seq,dg_apply_lag,dg_transport_lag,dg_process
+
+#------------------------------数据库信息-----------------------------------------------------------------
+#数据库锁数量
+locks.Query=select count(1) lock_num \
+            from v$locked_object t1, v$session t2, dba_objects t3, gv$lock t4 \
+            where t1.session_id = t2.sid \
+            and t1.object_id = t3.object_id \
+            and t2.sid = t4.SID \
+            and t2.LAST_CALL_ET > 120 \
+            and t2.status = 'ACTIVE' \
+            order by t2.logon_time
+#数据库运行时间
+uptime.Query=select to_char((sysdate-startup_time)*86400, 'FM99999999999999990') retvalue from v$instance
+#监控失效项个数
+invalid_object.Query=SELECT COUNT(1) FROM dba_objects WHERE status = 'INVALID' and OWNER NOT IN ('SYS','PUBLIC','SYSTEM')
+#用户连接数
+userconn.Query=select count(username) from v$session where username is not null
+#数据库SCN
+scn.Query=select current_scn from v$database
+#---------------------------------------------------------------------------------------------------------
+
+#------------------------------------processes和session---------------------------------------------------
+#设置的最大进程数
+maxprocs.Query=select value "maxprocs" from v$parameter where name ='processes'
+#当前使用的进程数
+procnum.Query=select count(*) "procnum" from v$process
+#设置的最大会话数
+maxsession.Query=select value "maxsess" from v$parameter where name ='sessions'
+#当前活动的会话数
+session_active.Query=select count(*) from v$session where TYPE!='BACKGROUND' and status='ACTIVE'
+#当前非活动状态的会话数
+session_inactive.Query=select SUM(Decode(Type, 'BACKGROUND', 0, Decode(Status, 'ACTIVE', 0, 1))) FROM V$SESSION
+#当前所有的会话数
+session.Query=select count(*) from v$session
+#oracle自己占用的会话数
+session_system.Query=select SUM(Decode(Type, 'BACKGROUND', 1, 0)) system_sessions FROM V$SESSION
+#--------------------------------------------------------------------------------------------------------
+
+#---------------------------------------------------SGA和PGA---------------------------------------------
+#SGA使用情况
+#buffer cache大小
+sga_buffer_cache.Query=SELECT to_char(ROUND(SUM(decode(pool,NULL,decode(name,'db_block_buffers',(bytes)/(1024*1024),'buffer_cache',(bytes)/(1024*1024),0),0)),2)) sga_bufcache FROM V$SGASTAT
+#buffer cache命中率
+sga_buffer_cache_hit.Query=SELECT round((1 - (PHYSICAL_READS / (DB_BLOCK_GETS + CONSISTENT_GETS)))*100,2) "Hit Ratio" FROM V$BUFFER_POOL_STATISTICS WHERE NAME='DEFAULT'
+#固定SGA区域大小
+sga_fixed.Query=SELECT TO_CHAR(ROUND(SUM(decode(pool,NULL,decode(name,'fixed_sga',(bytes)/(1024*1024),0),0)),2)) sga_fixed FROM V$SGASTAT
+#java池大小
+sga_java_pool.Query=SELECT to_char(ROUND(SUM(decode(pool,'java pool',(bytes)/(1024*1024),0)),2)) sga_jpool FROM V$SGASTAT
+#大池大小
+sga_large_pool.Query=SELECT to_char(ROUND(SUM(decode(pool,'large pool',(bytes)/(1024*1024),0)),2)) sga_lpool FROM V$SGASTAT
+#日志缓冲区大小
+sga_log_buffer.Query=SELECT TO_CHAR(ROUND(SUM(decode(pool,NULL,decode(name,'log_buffer',(bytes)/(1024*1024),0),0)),2)) sga_lbuffer FROM V$SGASTAT
+#共享池大小
+sga_shared_pool.Query=SELECT TO_CHAR(ROUND(SUM(decode(pool,'shared pool',decode(name,'library cache',0,'dictionary cache',0,'free memory',0,'sql area',0,(bytes)/(1024*1024)),0)),2)) pool_misc FROM V$SGASTAT
+#共享池命中率
+sga_shared_hit.Query=select sum(pinhits-reloads)/sum(pins)*100 "hit radio" from v$librarycache
+#PGA使用情况
+pga_aggregate_target.Query=select to_char(decode( unit,'bytes', value/1024/1024, value),'999999999.9') value from V$PGASTAT where name in 'aggregate PGA target parameter'
+pga.Query=select to_char(decode( unit,'bytes', value/1024/1024, value),'999999999.9') value from V$PGASTAT where name in 'total PGA inuse'
+#----------------------------------------------------------------------------------------------------------
+
+#--------------------------------------------------表空间---------------------------------------------------
+#临时表空间使用率
+temp_tablespace.Query=select to_char(used_percent,'99.99') from dba_tablespace_usage_metrics where tablespace_name='TEMP'
+#----------------------------------------------------------------------------------------------------------
+
+#-------------------------------------DG状态---------------------------------------------------------------
+#dg数据库的状态
+db_mode.Query=select open_mode from v$database
+#是否存在gap
+dg_gap.Query=select t.completion_time||'->'||round((sysdate-t.completion_time)*24) gap from v$archived_log t where t.applied='NO' and name is not null order by completion_time desc
+dg_gap.NoDataFound=none
+#最大归档日志序列号
+dg_seq.Query=select max(sequence#) from v$archived_log
+#应用日志延迟时间
+dg_apply_lag.Query=select value from v$dataguard_stats where name='apply lag'
+#接受日志延迟时间
+dg_transport_lag.Query=select value from v$dataguard_stats where name='transport lag'
+#查看进程情况
+dg_process.Query=select to_char(wm_concat(process)) from (select distinct process  from v$managed_standby)
+#----------------------------------------------------------------------------------------------------------

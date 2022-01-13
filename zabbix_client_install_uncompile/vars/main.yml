@@ -1,0 +1,8 @@
+zabbix_version: 3.2.0.linux2_6_23.amd64
+zabbix_dir: /etc/zabbix
+zabbix_user: zabbix
+zabbix_port: 10050 
+zabbix_server_ip: 192.168.8.130
+project_id: GZRM 
+redis_server: ['192.168.8.61']
+zookeeper_server: ['192.168.8.56','192.168.8.57','192.168.8.58']

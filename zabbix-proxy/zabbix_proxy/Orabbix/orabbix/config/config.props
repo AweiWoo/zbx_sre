@@ -1,0 +1,26 @@
+#固定参数
+OrabbixDaemon.PidFile=./orabbix.pid
+OrabbixDaemon.Sleep=300
+OrabbixDaemon.MaxThreadNumber=100
+DatabaseList.MaxActive=10
+DatabaseList.MaxWait=100
+DatabaseList.MaxIdle=1
+
+#可变参数
+#comma separed list of Zabbix servers
+#ZabbixServerList=zabbix
+#zabbix.Address=localhost
+#zabbix.Port=10051
+
+ZabbixServerList=zabbix
+
+
+#put here your databases in a comma separated list
+
+DatabaseList=DB1
+
+#define here your connection string for each database
+#DB1.Url=jdbc:oracle:thin:@192.168.10.89:1521:orcl
+#DB1.User=zabbix
+#DB1.Password=zabbix
+#DB1.QueryListFile=./conf/query.props
